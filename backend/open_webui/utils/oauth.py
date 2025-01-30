@@ -182,6 +182,7 @@ class OAuthManager:
             raise HTTPException(404)
         return await client.authorize_redirect(request, redirect_uri)
 
+
     async def handle_callback(self, provider, request, response):
         if provider not in OAUTH_PROVIDERS:
             raise HTTPException(404)
@@ -197,6 +198,27 @@ class OAuthManager:
         if not user_data:
             log.warning(f"OAuth callback failed, user data is missing: {token}")
             raise HTTPException(400, detail=ERROR_MESSAGES.INVALID_CRED)
+
+        permission_string = "Default Resource"
+
+        async with httpx.AsyncClient() as myclient:
+            resp = await myclient.post(
+                f"{client.server_metadata['token_endpoint']}",
+                data={
+                    "grant_type": "urn:ietf:params:oauth:grant-type:uma-ticket",
+                    "audience": "account",
+                    "permission": permission_string,
+                },
+                headers={
+                    "Authorization": f"Bearer {token['access_token']}",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+            )
+            rpt = resp.json()
+
+            if "error" in rpt:
+                log.warning(f"OAuth callback failed, RPT request failed: {rpt}")
+                raise HTTPException(400, detail=ERROR_MESSAGES.INVALID_CRED)
 
         sub = user_data.get(OAUTH_PROVIDERS[provider].get("sub_claim", "sub"))
         if not sub:
@@ -339,6 +361,8 @@ class OAuthManager:
         # Redirect back to the frontend with the JWT token
         redirect_url = f"{request.base_url}auth#token={jwt_token}"
         return RedirectResponse(url=redirect_url, headers=response.headers)
+
+
 
 
 oauth_manager = OAuthManager()
